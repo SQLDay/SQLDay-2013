@@ -1,0 +1,142 @@
+--Parent Child hierarchies (use Wroclaw database)
+
+--Shows query plan for PC hierarchy
+select measures.members on 0
+,[Employee].[Employee Hierarchy].[Level 02].members on 1
+from [PC cube]
+
+--Shows query plan for Flattened PC hierarchy using aggregation
+select measures.members on 0
+,[Employee_Naturalized].[Employee Hierarchy].[Level 02].members on 1
+from [Non PC Cube]
+
+-------------------------------------------
+--Simplifying calculations using modelling
+
+--Getting most recent date in MDX
+
+--Get last date with values using MDX
+SELECT {[Measures].[Internet Sales Amount]} ON 0,
+{TAIL(
+NONEMPTY([Date].[Date].[Date].MEMBERS
+, [Measures].[Internet Sales Amount])
+)} ON 1
+FROM [Adventure Works]
+
+--And in a calculation
+WITH
+MEMBER MEASURES.[TODAYS SALES] AS
+([Measures].[Internet Sales Amount],
+TAIL(
+NONEMPTY([Date].[Date].[Date].MEMBERS, 
+[Measures].[Internet Sales Amount])
+).ITEM(0).ITEM(0) )
+
+SELECT {MEASURES.[TODAYS SALES]} ON 0
+FROM [Adventure Works]
+
+--Now using an attribute
+WITH
+MEMBER MEASURES.[TODAYS SALES] AS
+([Measures].[Internet Sales Amount],
+[Date].[Current Date].&[1])
+
+SELECT {MEASURES.[TODAYS SALES]} ON 0
+FROM [Adventure Works]
+
+-------------------------------------------
+--Partition Elimination
+
+--Example of Slice setting
+([Date].[Calendar Year].&[2002])
+
+--Hits multiple partitions, even with the Slice set
+select measures.[internet sales amount] on 0,
+{[Date].[Calendar Semester].&[2004]&[1]} on 1 
+from [adventure works]
+
+--Show DataIDs
+with member measures.demo as 
+dataid([Date].[Calendar Semester].currentmember)
+
+select measures.demo on 0,
+[Date].[Calendar Semester].[Calendar Semester].members on 1
+from [Adventure Works]
+
+--Show dataid ranges
+call assp.DiscoverPartitionSlices("Adventure Works", "Internet Sales")
+
+--Prefetching in action
+--Retry using Disable Prefetch Facts=True; Cache Ratio=1
+select {[Measures].[Internet Sales Amount]} on 0,
+{[Date].[Calendar Year].&[2001],
+[Date].[Calendar Year].&[2002],
+[Date].[Calendar Year].&[2003]} on 1
+from [Adventure Works]
+
+-------------------------------------------
+--Check for unprocessed aggregations
+
+SELECT * 
+FROM SystemRestrictSchema($system.discover_partition_stat
+        ,DATABASE_NAME = 'Adventure Works DW 2008'
+        ,CUBE_NAME = 'Adventure Works'
+        ,MEASURE_GROUP_NAME = 'Reseller Sales'
+        ,PARTITION_NAME = 'Reseller_Sales_2003')
+
+-------------------------------------------
+--Non_Empty_Behavior
+
+--setting NEB makes no difference
+--and it is set incorrectly
+WITH 
+MEMBER MEASURES.PreviousSales AS 
+([Measures].[Internet Sales Amount], 
+[Date].[Calendar].CURRENTMEMBER.PREVMEMBER) 
+--, NON_EMPTY_BEHAVIOR=[Measures].[Internet Sales Amount] 
+SELECT {[Measures].[Internet Sales Amount], measures.PreviousSales} ON 0, 
+[Date].[Calendar].[Calendar Year].MEMBERS ON 1 
+FROM [Adventure Works]
+
+--a complex calculation
+WITH 
+MEMBER MEASURES.SomeTest AS 
+IIF(Now()>0, "Internet", "Reseller") 
+MEMBER MEASURES.Demo as 
+STRTOMEMBER("[Measures].[" + measures.sometest + " Sales Amount]") 
+SELECT 
+{[Measures].Demo}  
+ON 0, 
+NON EMPTY 
+[Product].[Category].[Category].members 
+* 
+[Date].[Date].[Date].members 
+ON 1 
+FROM [Adventure Works]
+
+--setting NEB incorrectly returns incorrect results
+WITH 
+MEMBER MEASURES.SomeTest AS 
+IIF(Now()>0, "Internet", "Reseller") 
+MEMBER MEASURES.Demo as 
+STRTOMEMBER("[Measures].[" + measures.sometest + " Sales Amount]") 
+, NON_EMPTY_BEHAVIOR=[Measures].[Reseller Sales Amount] 
+SELECT 
+{[Measures].Demo} 
+ON 0, 
+NON EMPTY 
+[Product].[Category].[Category].members 
+* 
+[Date].[Date].[Date].members 
+ON 1 
+FROM [Adventure Works]
+
+------------------------------------------
+--Cell Security
+--Roles=cellsecuritydemo
+--Roles=dimsecuritydemo
+SELECT
+[Date].[Calendar Year].[Calendar Year].MEMBERS ON 0,
+[Ship Date].[Calendar Year].[Calendar Year].MEMBERS ON 1
+FROM [Adventure Works]
+WHERE([Measures].[Internet Sales Amount])
